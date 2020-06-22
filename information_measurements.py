@@ -25,14 +25,15 @@ import queue
 import cProfile as pf
 import matplotlib.pyplot as plt
 
-class StateDistribution():
+class MeasureInformation():
     def __init__(self):
 
         self.run = None
         self.run_xin1 = None
         self.run_xkin_xin1 = None
-        self.timesteps = 4
-        self.cells = 10000
+        self.timesteps = 600
+        self.cells = 15000
+
         self.k = 16
         self.start_states = []
 
@@ -48,7 +49,7 @@ class StateDistribution():
             q = queue.Queue()
             start_state = np.random.randint(2, size=(self.cells))
             self.start_states.append(start_state)
-            for t, ca_state in enumerate(ca.step_ca(self.timesteps, self.cells, 54, start_state)):
+            for t, ca_state in enumerate(ca.step_ca(self.timesteps, self.cells, 110, start_state)):
                 # iterate system
                 #print(ca_state)
                 #state = np.zeros((cells, 1))
@@ -73,20 +74,21 @@ class StateDistribution():
                 #iterate each 'time dimension' so roll the axis over to have time first
                 for cell, timeslice in enumerate(states.T):
 
-                    xkin = (ca.bool2int(timeslice[:self.k]), cell, n)
+                    xkin = (ca.bool2int(timeslice[:self.k]))#, cell, n)
                     if xkin in self.run.keys():
                         self.run[xkin] += 1
                     else:
                         self.run[xkin] = 1
 
-                    xin = (timeslice[self.k], cell, n+1)
+                    xin = (timeslice[self.k])#, cell, n+1)
                     if xin in self.run_xin1.keys():
                         self.run_xin1[xin] += 1
                     else:
                         self.run_xin1[xin] = 1
 
                     #joint distribution
-                    xin = (ca.bool2int(timeslice[:self.k]), cell, n, timeslice[self.k], cell, n+1)
+                    #xin = (ca.bool2int(timeslice[:self.k]), cell, n, timeslice[self.k], cell, n+1)
+                    xin = (ca.bool2int(timeslice[:self.k]), timeslice[self.k])#, cell, n, timeslice[self.k], cell, n+1)
                     if xin in self.run_xkin_xin1.keys():
                         self.run_xkin_xin1[xin] += 1
                     else:
@@ -100,42 +102,38 @@ class StateDistribution():
         #self.total_runs = sum(self.run.values())
 
         return self.run
-    def p_xkin(self, xk, i, n):
+    def p_xkin(self, xk):
         denom = sum(self.run.values()) # (self.timesteps-50 + self.k) * 2**self.k
         if not self.run:
             print("Please build_distribution() first")
         else:
-            if (xk, i, n) not in self.run.keys():
+            if (xk) not in self.run.keys():
                 return 0
-            return self.run[(xk, i, n)] / denom # ((self.timesteps-50) * 2**self.k)
+            print("hit xkin")
+            return self.run[(xk)] / denom # ((self.timesteps-50) * 2**self.k)
 
-    def p_xin1(self, x, i, n1):
+    def p_xin1(self, x):
         denom = sum(self.run_xin1.values()) # (self.timesteps - 50 + self.k) * 2
         if not self.run_xin1:
             print("Please build_distribution() first")
         else:
-            if not (x, i, n1) in self.run_xin1.keys():
+            if not (x) in self.run_xin1.keys():
                 return 0
             else:
-                return self.run_xin1[(x, i, n1)] / denom
+                print("hit xkin1")
+                return self.run_xin1[(x)] / denom
 
-    def p_joint(self, xk, x, i, n):
+    def p_joint(self, xk, x):
         denom = sum(self.run_xkin_xin1.values()) #(self.timesteps - 50 + self.k) * (2**self.k) * 2
         if not self.run_xkin_xin1:
             print("Please build_distribution() first")
         else:
-            if (xk, i, n, x, i, n + 1) not in self.run_xkin_xin1.keys():
+            if (xk, x) not in self.run_xkin_xin1.keys():
                 return 0
             else:
-                return self.run_xkin_xin1[(xk, i, n, x, i, n + 1)] / denom # ((self.timesteps-50)**2 * 2**self.k * 2)
+                print("hit joint")
+                return self.run_xkin_xin1[(xk, x)] / denom # ((self.timesteps-50)**2 * 2**self.k * 2)
 
-    """ This is the 'local information storage' for site i (cell)"""
-    def a(self, i, n):
-        return
-
-    """ local information storage for timestep t, looking k cells back """
-    def lis(self, t, k):
-        return
 
 #pr = pf.Profile()
 #pr.disable()
@@ -150,7 +148,8 @@ r = s.build_distribution(1)
         #print(p)
     #    plt.plot(p)
 #plt.hist([s.p_xkin(*key) for key in r if s.p_xkin(*key) > 6.5e-10], 10)
-
+#plt.hist([s.p_joint(*key) for key in s.run_xkin_xin1.keys()], 10)
+#plt.show()
 #print(sum([s.p_xkin(*key) for key in r]))
 #plt.savefig('prob.png')
 
@@ -159,12 +158,12 @@ k = s.k
 #cells = s.cells
 cells = 40
 settling_time = 50 - k
-#start_state = np.random.randint(2, size=(cells))
-start_state = s.start_states[0][:cells]
+start_state = np.random.randint(2, size=(cells))
+#start_state = s.start_states[0][:cells]
 res = np.zeros((s.timesteps, cells))
 caroll = np.zeros((s.timesteps, cells))
 print(res.shape)
-for t, ca_state in enumerate(ca.step_ca(s.timesteps, cells, 54, start_state)):
+for t, ca_state in enumerate(ca.step_ca(s.timesteps, cells, 110, start_state)):
     #funnily enough we need to do exactly the same as when we are making
     #the distsributions...
     if t < settling_time - s.k:
@@ -187,11 +186,12 @@ for t, ca_state in enumerate(ca.step_ca(s.timesteps, cells, 54, start_state)):
     q.get()
 
     for cell, timeslice in enumerate(states.T):
-        ain = np.log2(s.p_joint(ca.bool2int(timeslice[:k]), timeslice[k], cell, t)) - np.log2((s.p_xkin(ca.bool2int(timeslice[:k]), cell, t) * s.p_xin1(timeslice[k], cell, t+1)))
+        ain = np.log2(s.p_joint(ca.bool2int(timeslice[:k]), timeslice[k])) - np.log2((s.p_xkin(ca.bool2int(timeslice[:k])) * s.p_xin1(timeslice[k])))
         res[t, cell] = ain
 
-for r in res:
-    print(r)
+#print(s.run_xin1.values())
+#for r in res:
+#    print(r)
 posinfo = np.zeros(res.shape)
 neginfo = np.zeros(res.shape)
 for idx, x in np.ndenumerate(res):
@@ -200,8 +200,11 @@ for idx, x in np.ndenumerate(res):
     else:
         neginfo[idx] = x
 f, axs = plt.subplots(1, 3)
-axs[0].matshow(caroll)
-axs[1].matshow(posinfo)
-axs[2].matshow(neginfo)
-plt.matshow(res[settling_time+k:, ...])
+a0 = axs[0].matshow(caroll[100:150], cmap=plt.get_cmap('gray') )
+a1 = axs[1].matshow(posinfo[100:150], cmap=plt.get_cmap('gray'))
+a2 = axs[2].matshow(neginfo[100:150], cmap=plt.get_cmap('gray'))
+f.colorbar(a0, ax=axs[0])
+f.colorbar(a1, ax=axs[1])
+f.colorbar(a2, ax=axs[2])
+#plt.matshow(res[settling_time+k:, ...])
 plt.show()

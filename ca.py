@@ -68,3 +68,24 @@ def bool2int(x):
     for i,j in enumerate(x):
         y += j<<i
     return y
+
+if __name__ == "__main__":
+    w = 50
+    t = 100
+    initial = np.zeros((w))
+    initial[0] = 1
+    initial[1] = 1
+    initial[2] = 1
+    initial[25] = 1
+    initial[47] = 1
+    initial[48] = 1
+    initial[49] = 1
+    toprint = [initial]
+    for time, state in enumerate(step_ca(t, w, 54, initial)):
+        toprint.append(state)
+
+    import matplotlib.pyplot as plt
+    plt.matshow(toprint)
+    plt.show()
+
+
