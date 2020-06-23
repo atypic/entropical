@@ -1,12 +1,4 @@
 import numpy as np
-import numpy as np
-import copy
-import itertools
-import concurrent.futures
-
-#import matplotlib
-#matplotlib.use('nbagg')
-#import matplotlib.pyplot as plt
 
 def in_grid(state, grid, skip_cells=1):
     l = 1
@@ -40,25 +32,6 @@ def step_ca(timesteps, width, ruleset, startstate):
 
         yield cell_grid[j+1]
 
-            #have we seen this state before?
-            #for
-            #if i == W-1:
-            #    x = in_grid(cell_grid[j+1], cell_grid[:j], 1)
-            #    if x > -1:
-            #        return x, cell_grid
-    #return -1, cell_grid
-
-def rollout_ca_para(args):
-    init_binary = np.array(tobin(args[1], width))
-    trans, grid = rollout_ca(100, args[0], args[2], init_binary)
-    decaconfigs = [bool2int(config) for config in grid]
-    nums = set()
-    print(decaconfig)
-    for f in decaconfigs:
-        nums.add(f)
-    print("uniqe: ", nums)
-    return trans, nums
-
 
 def tobin(x,s):
     return [(x>>k)&1 for k in range(0,s)]
@@ -72,7 +45,7 @@ def bool2int(x):
 if __name__ == "__main__":
     w = 50
     t = 100
-    initial = np.zeros((w))
+    initial = np.zeros(w)
     initial[0] = 1
     initial[1] = 1
     initial[2] = 1
