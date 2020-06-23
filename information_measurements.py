@@ -25,186 +25,156 @@ import queue
 import cProfile as pf
 import matplotlib.pyplot as plt
 
-class MeasureInformation():
-    def __init__(self):
+class InformationMeasurements():
+    def __init__(self, k=16, settling_time=30):
 
-        self.run = None
-        self.run_xin1 = None
-        self.run_xkin_xin1 = None
-        self.timesteps = 600
-        self.cells = 15000
+        self.distribution_past_states = {}
+        self.distribution_next_state = {}
+        self.distribution_joint_past_next = {}
 
-        self.k = 16
-        self.start_states = []
+        self.k = k
+        self.settling_time = settling_time
 
         return
 
-    def build_distribution(self, repeats): #, system, *system_args):
-        settling_time = 50 - self.k   #subtract because we also want to fill the queue
-        #data = np.array((1, timesteps, cells))
-        self.run = {}
-        self.run_xin1 = {}
-        self.run_xkin_xin1 = {}
-        for r in range(repeats):
-            q = queue.Queue()
-            start_state = np.random.randint(2, size=(self.cells))
-            self.start_states.append(start_state)
-            for t, ca_state in enumerate(ca.step_ca(self.timesteps, self.cells, 110, start_state)):
-                # iterate system
-                #print(ca_state)
-                #state = np.zeros((cells, 1))
-                if t < settling_time:
-                    continue
+    def add_run(self, next_state_generator): #, system, *system_args):
+        settling_time = self.settling_time + self.k   #want to fill the queue
+        q = queue.Queue()
+        for t, ca_state in enumerate(next_state_generator): #ca.step_ca(self.timesteps, self.cells, 110, start_state)):
+            if t < settling_time:
+                continue
 
-                #We use a queue and limit the number of elements in the queue to 16.
-                #It's a fixed length FIFO: each time we read out a new state this is
-                #x_k.
-                #This relies on listifying the queue. TODO: bad practice?
-                q.put(ca_state)
-                if q.qsize() < self.k + 1:    #plus one to account for the prediciton t+1
-                    continue   #we haven't filled the queue yet.
-                states = np.zeros((self.k + 1, self.cells), dtype=int)
-                for time, state in enumerate(list(q.queue)):
-                    for ci, c in enumerate(state):
-                        states[time, ci] = c
-                #pop oldest
-                q.get()
-                n = t - 1   #we're one timestep behind because we also need the last state.
+            #We use a queue and limit the number of elements in the queue to 16.
+            #It's a fixed length FIFO: each time we read out a new state this is x_k.
+            #This relies on listifying the queue which is probably not good.
 
-                #iterate each 'time dimension' so roll the axis over to have time first
-                for cell, timeslice in enumerate(states.T):
+            q.put(ca_state)
+            if q.qsize() < self.k + 1:    #plus one to account for the prediciton t+1
+                continue   #we haven't filled the queue yet.
 
-                    xkin = (ca.bool2int(timeslice[:self.k]))#, cell, n)
-                    if xkin in self.run.keys():
-                        self.run[xkin] += 1
-                    else:
-                        self.run[xkin] = 1
+            states = np.zeros((self.k + 1, len(ca_state)), dtype=int)
+            for time, state in enumerate(list(q.queue)):
+                for ci, c in enumerate(state):
+                    states[time, ci] = c
 
-                    xin = (timeslice[self.k])#, cell, n+1)
-                    if xin in self.run_xin1.keys():
-                        self.run_xin1[xin] += 1
-                    else:
-                        self.run_xin1[xin] = 1
+            #pop oldest
+            q.get()
+            n = t - 1  #n is now the 'current state'
 
-                    #joint distribution
-                    #xin = (ca.bool2int(timeslice[:self.k]), cell, n, timeslice[self.k], cell, n+1)
-                    xin = (ca.bool2int(timeslice[:self.k]), timeslice[self.k])#, cell, n, timeslice[self.k], cell, n+1)
-                    if xin in self.run_xkin_xin1.keys():
-                        self.run_xkin_xin1[xin] += 1
-                    else:
-                        self.run_xkin_xin1[xin] = 1
+            #iterate time dimension so transpose to have time first dim
+            for cell, timeslice in enumerate(states.T):
 
-            print('done with repeat', r)
-            #
-        #now we make the xkin distribution
-        #for s in run:
-        #    print(s, "->", run[s])
-        #self.total_runs = sum(self.run.values())
+                xkin = (ca.bool2int(timeslice[:self.k]))#, cell, n)
+                if xkin in self.distribution_past_states.keys():
+                    self.distribution_past_states[xkin] += 1
+                else:
+                    self.distribution_past_states[xkin] = 1
 
-        return self.run
+                xin = (timeslice[self.k])#, cell, n+1)
+                if xin in self.distribution_next_state.keys():
+                    self.distribution_next_state[xin] += 1
+                else:
+                    self.distribution_next_state[xin] = 1
+
+                #joint distribution
+                xin = (ca.bool2int(timeslice[:self.k]), timeslice[self.k])
+                if xin in self.distribution_joint_past_next.keys():
+                    self.distribution_joint_past_next[xin] += 1
+                else:
+                    self.distribution_joint_past_next[xin] = 1
+
+        return self.distribution_past_states
+
+
     def p_xkin(self, xk):
-        denom = sum(self.run.values()) # (self.timesteps-50 + self.k) * 2**self.k
-        if not self.run:
-            print("Please build_distribution() first")
+        denom = sum(self.distribution_past_states.values())
+        if not self.distribution_past_states:
+            print("Please add_run() first")
         else:
-            if (xk) not in self.run.keys():
+            if (xk) not in self.distribution_past_states.keys():
                 return 0
-            print("hit xkin")
-            return self.run[(xk)] / denom # ((self.timesteps-50) * 2**self.k)
+            return self.distribution_past_states[(xk)] / denom
 
     def p_xin1(self, x):
-        denom = sum(self.run_xin1.values()) # (self.timesteps - 50 + self.k) * 2
-        if not self.run_xin1:
-            print("Please build_distribution() first")
+        denom = sum(self.distribution_next_state.values())
+        if not self.distribution_next_state:
+            print("Please add_run() first")
         else:
-            if not (x) in self.run_xin1.keys():
+            if not (x) in self.distribution_next_state.keys():
                 return 0
             else:
-                print("hit xkin1")
-                return self.run_xin1[(x)] / denom
+                return self.distribution_next_state[(x)] / denom
 
     def p_joint(self, xk, x):
-        denom = sum(self.run_xkin_xin1.values()) #(self.timesteps - 50 + self.k) * (2**self.k) * 2
-        if not self.run_xkin_xin1:
-            print("Please build_distribution() first")
+        denom = sum(self.distribution_joint_past_next.values())
+        if not self.distribution_joint_past_next:
+            print("Please add_run() first")
         else:
-            if (xk, x) not in self.run_xkin_xin1.keys():
+            if (xk, x) not in self.distribution_joint_past_next.keys():
                 return 0
             else:
-                print("hit joint")
-                return self.run_xkin_xin1[(xk, x)] / denom # ((self.timesteps-50)**2 * 2**self.k * 2)
+                return self.distribution_joint_past_next[(xk, x)] / denom
 
 
-#pr = pf.Profile()
-#pr.disable()
+if __name__ == "__main__":
 
-s = StateDistribution()
-r = s.build_distribution(1)
-#for key in r:
-    #plt.plot(r[key])
-    #print("Prob:", s.p_xkin(*key))
-    #p = s.p_xkin(*key)
-    #if p > 1.e-9:
-        #print(p)
-    #    plt.plot(p)
-#plt.hist([s.p_xkin(*key) for key in r if s.p_xkin(*key) > 6.5e-10], 10)
-#plt.hist([s.p_joint(*key) for key in s.run_xkin_xin1.keys()], 10)
-#plt.show()
-#print(sum([s.p_xkin(*key) for key in r]))
-#plt.savefig('prob.png')
+    # Build a distribution
 
-q = queue.Queue()
-k = s.k
-#cells = s.cells
-cells = 40
-settling_time = 50 - k
-start_state = np.random.randint(2, size=(cells))
-#start_state = s.start_states[0][:cells]
-res = np.zeros((s.timesteps, cells))
-caroll = np.zeros((s.timesteps, cells))
-print(res.shape)
-for t, ca_state in enumerate(ca.step_ca(s.timesteps, cells, 110, start_state)):
-    #funnily enough we need to do exactly the same as when we are making
-    #the distsributions...
-    if t < settling_time - s.k:
-        continue
-    if t > s.timesteps - s.k:
-        break
+    s = InformationMeasurements(k=16)
+    cells = 10000
+    sampling_runs = 1
+    for rep in range(sampling_runs):
+        initial_state = np.random.randint(2, size=(cells))
+        state_generator = ca.step_ca(1000, cells, 110, initial_state)
+        s.add_run(state_generator)
 
-    caroll[t] = ca_state
-    # We use a queue and limit the number of elements in the queue to 16.
-    # It's a fixed length FIFO: each time we read out a new state this is
-    # x_k.
-    # This relies on listifying the queue. TODO: bad practice?
-    q.put(ca_state)
-    if q.qsize() < k + 1:  # plus one to account for the prediciton t+1
-        continue  # we haven't filled the queue yet.
-    states = np.zeros((k + 1, cells), dtype=int)
-    for idx, state in enumerate(list(q.queue)):
-        for ci, c in enumerate(state):
-            states[idx, ci] = c
-    q.get()
+    # Distributions should be ready, let's apply this to a sample system.
+    # The system is 40 cells wide, runs for 200 timesteps.
+    k = s.k
+    cells = 40
+    timesteps = 200
+    settling_time = 30 + k
+    initial_state = np.random.randint(2, size=(cells))
+    res = np.zeros((timesteps, cells))
+    step_func = ca.step_ca(timesteps, cells, 110, initial_state)
+    ca_unroll = np.zeros((timesteps, cells))
 
-    for cell, timeslice in enumerate(states.T):
-        ain = np.log2(s.p_joint(ca.bool2int(timeslice[:k]), timeslice[k])) - np.log2((s.p_xkin(ca.bool2int(timeslice[:k])) * s.p_xin1(timeslice[k])))
-        res[t, cell] = ain
+    q = queue.Queue()
+    for t, ca_state in enumerate(step_func):
+        #funnily enough we need to do exactly the same as when we are making
+        #the distsributions...
+        if t < settling_time:
+            continue
+        if t > timesteps:
+            break
 
-#print(s.run_xin1.values())
-#for r in res:
-#    print(r)
-posinfo = np.zeros(res.shape)
-neginfo = np.zeros(res.shape)
-for idx, x in np.ndenumerate(res):
-    if x > 0:
-        posinfo[idx] = x
-    else:
-        neginfo[idx] = x
-f, axs = plt.subplots(1, 3)
-a0 = axs[0].matshow(caroll[100:150], cmap=plt.get_cmap('gray') )
-a1 = axs[1].matshow(posinfo[100:150], cmap=plt.get_cmap('gray'))
-a2 = axs[2].matshow(neginfo[100:150], cmap=plt.get_cmap('gray'))
-f.colorbar(a0, ax=axs[0])
-f.colorbar(a1, ax=axs[1])
-f.colorbar(a2, ax=axs[2])
-#plt.matshow(res[settling_time+k:, ...])
-plt.show()
+        ca_unroll[t] = ca_state
+        q.put(ca_state)
+        if q.qsize() < k + 1:  # plus one to account for the prediciton t+1
+            continue  # we haven't filled the queue yet.
+        states = np.zeros((k + 1, cells), dtype=int)
+        for idx, state in enumerate(list(q.queue)):
+            for ci, c in enumerate(state):
+                states[idx, ci] = c
+        q.get()
+
+        for cell, timeslice in enumerate(states.T):
+            ain = np.log2(s.p_joint(ca.bool2int(timeslice[:k]), timeslice[k])) - np.log2((s.p_xkin(ca.bool2int(timeslice[:k])) * s.p_xin1(timeslice[k])))
+            res[t, cell] = ain
+
+    posinfo = np.zeros(res.shape)
+    neginfo = np.zeros(res.shape)
+    for idx, x in np.ndenumerate(res):
+        if x > 0:
+            posinfo[idx] = x
+        else:
+            neginfo[idx] = x
+    f, axs = plt.subplots(1, 3)
+    a0 = axs[0].matshow(ca_unroll[100:150], cmap=plt.get_cmap('gray') )
+    a1 = axs[1].matshow(posinfo[100:150], cmap=plt.get_cmap('gray'))
+    a2 = axs[2].matshow(neginfo[100:150], cmap=plt.get_cmap('gray'))
+    f.colorbar(a0, ax=axs[0])
+    f.colorbar(a1, ax=axs[1])
+    f.colorbar(a2, ax=axs[2])
+    #plt.matshow(res[settling_time+k:, ...])
+    plt.show()
