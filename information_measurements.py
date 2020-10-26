@@ -23,7 +23,7 @@ import queue
 
 
 class InformationMeasurements:
-    def __init__(self, k=16, j=-1, settling_time=30):
+    def __init__(self, k=16, j=1, settling_time=60):
 
         self.distribution_past_states = {}
         self.distribution_next_state = {}
@@ -31,6 +31,8 @@ class InformationMeasurements:
 
         self.joint_past_neighbor = {}
         self.joint_next_past_neighbor = {}
+
+        self.total_observations = 0
 
         self.k = k
         self.j = j
@@ -48,8 +50,9 @@ class InformationMeasurements:
         #q.put(ca_state)
         boolint_cache = {}
 
+        self.total_observations = 0
         for t, ca_state in enumerate(next_state_generator):
-            print(f"Stepping cellular automata: {t}")
+            print(f"Stepping state generator: {t}")
             states = np.roll(states, 1, axis=0)
             states[0] = ca_state
             if t < self.settling_time:
@@ -62,6 +65,7 @@ class InformationMeasurements:
             # timeseries = states.T
             for cell, timeslice in enumerate(states.T):
 
+                self.total_observations += 1
                 #print(f"states: {cell}")
                 #assert(len(timeslice) == 17)
 
@@ -74,37 +78,38 @@ class InformationMeasurements:
                 else:
                     k_slice = boolint_cache[set(timeslice[:self.k])]
                 """
-                k_slice = timeslice[:self.k].tostring()
+                k_slice = timeslice[1:].tostring()
+                #print(np.fromstring(k_slice, dtype=np.int))
 
-                xkin = (k_slice)
+                xkin = k_slice
                 if xkin in self.distribution_past_states.keys():
                     self.distribution_past_states[xkin] += 1
                 else:
                     self.distribution_past_states[xkin] = 1
 
                 #distribution of next states
-                xin = (timeslice[self.k])  # , cell, n+1)
+                xin = (timeslice[0])  # , cell, n+1)
                 if xin in self.distribution_next_state.keys():
                     self.distribution_next_state[xin] += 1
                 else:
                     self.distribution_next_state[xin] = 1
 
                 # joint distribution (both xkin, and xin)
-                xin = (k_slice, timeslice[self.k])
+                xin = (k_slice, timeslice[0])
                 if xin in self.distribution_joint_past_next.keys():
                     self.distribution_joint_past_next[xin] += 1
                 else:
                     self.distribution_joint_past_next[xin] = 1
 
                 # joint between past and neighboring cell, same time (k)
-                key = (k_slice, states[self.k - 1, (cell - self.j) % w]) #(cell-self.j) % w, self.k-1])
+                key = (k_slice, states[1, (cell - self.j) % w])
                 if key in self.joint_past_neighbor.keys():
                     self.joint_past_neighbor[key] += 1
                 else:
                     self.joint_past_neighbor[key] = 1
 
                 #joint between next, past, and j neighbor
-                key = (timeslice[self.k], k_slice, states[self.k - 1, (cell - self.j) % w]) #states[(cell-self.j) % w, self.k-1])
+                key = (timeslice[0], k_slice, states[1, (cell - self.j) % w])
                 if key in self.joint_next_past_neighbor.keys():
                     self.joint_next_past_neighbor[key] += 1
                 else:
@@ -114,23 +119,24 @@ class InformationMeasurements:
 
     #The timeslice needs to be such that the last element represents the n+1 element.
     def predictive_information(self, timeslice):
-        k = self.k
-        k_slice = timeslice[:k].tostring()
-        return np.log2(self.p_xk_xnext(k_slice, timeslice[k])) -\
-              np.log2((self.p_xk(k_slice) * self.p_xnext(timeslice[k])))
+        k_slice = timeslice[1:].tostring()
+        term_a = self.p_xk_xnext(k_slice, timeslice[0])
+        term_b = self.p_xk(k_slice) * self.p_xnext(timeslice[0])
+        print(f"P slice {timeslice[1:]}, next:  {timeslice[0]}, term_a {term_a} term_b: {term_b}")
+        return np.log2(term_a) - np.log2(term_b)
 
     #neighbor cell state at time = n, not n+1.
     def information_transfer(self, timeslice, neigbhor_cell_state):
-        k = self.k
-        k_slice = timeslice[:k].tostring()
-        joint_a = self.p_xnext_xk_xj(timeslice[k], k_slice, neigbhor_cell_state)/\
+        k_slice = timeslice[1:].tostring()
+        joint_a = self.p_xnext_xk_xj(timeslice[0], k_slice, neigbhor_cell_state)/\
                   self.p_xk_xj(k_slice, neigbhor_cell_state)
-        joint_b = self.p_xk_xnext(k_slice, timeslice[k])/self.p_xk(k_slice)
+        joint_b = self.p_xk_xnext(k_slice, timeslice[0])/self.p_xk(k_slice)
 
         return np.log2(joint_a) - np.log2(joint_b)
 
     def p_xk(self, xk):
-        denom = sum(self.distribution_past_states.values())
+        #denom = sum(self.distribution_past_states.values())
+        denom = self.total_observations
         if not self.distribution_past_states:
             print("Please add_run() first")
         else:
@@ -140,6 +146,7 @@ class InformationMeasurements:
 
     def p_xnext(self, x):
         denom = sum(self.distribution_next_state.values())
+        denom = self.total_observations
         if not self.distribution_next_state:
             print("Please add_run() first")
         else:
@@ -150,6 +157,7 @@ class InformationMeasurements:
 
     def p_xk_xnext(self, xk, x_next):
         denom = sum(self.distribution_joint_past_next.values())
+        denom = self.total_observations
         if not self.distribution_joint_past_next:
             print("Please add_run() first")
         else:
@@ -160,6 +168,7 @@ class InformationMeasurements:
 
     def p_xk_xj(self, xk, xj):
         denom = sum(self.joint_past_neighbor.values())
+        denom = self.total_observations
         if (xk,xj) not in self.joint_past_neighbor.keys():
             return 0
         else:
@@ -167,10 +176,12 @@ class InformationMeasurements:
 
     def p_xnext_xk_xj(self, xnext, xk, xj):
         denom = sum(self.joint_next_past_neighbor.values())
+        denom = self.total_observations
         if (xnext, xk, xj) not in self.joint_next_past_neighbor.keys():
             return 0
         else:
             return self.joint_next_past_neighbor[(xnext, xk, xj)] / denom
+
 
     @staticmethod
     def tobin(x, s):
